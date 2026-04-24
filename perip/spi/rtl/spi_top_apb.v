@@ -47,18 +47,121 @@ assign in_pready  = in_penable && in_psel && !in_pwrite;
 assign in_prdata  = data[31:0];
 
 `else
+// flash address
+wire sel_flash = in_psel & (in_paddr>=flash_addr_start) & (in_paddr<flash_addr_end);
 
+wire [4:0] in_spi_paddr;
+reg [4:0] in_xip_paddr;
+wire [31:0] in_spi_pwdata, in_spi_prdata;
+reg [31:0] in_xip_pwdata, in_xip_prdata;
+wire [3:0] in_spi_pstrb;
+reg [3:0] in_xip_pstrb;
+wire in_spi_pwrite, in_spi_penable, in_spi_pready;
+reg in_xip_pwrite, in_xip_penable, in_xip_pready;
+// select port for spi
+assign in_spi_paddr = sel_flash ? in_xip_paddr : in_paddr[4:0];
+assign in_spi_pwdata = sel_flash ? in_xip_pwdata : in_pwdata;
+assign in_prdata = sel_flash ? in_xip_prdata : in_spi_prdata;
+assign in_spi_pstrb = sel_flash ? in_xip_pstrb : in_pstrb;
+assign in_spi_pwrite = sel_flash ? in_xip_pwrite : in_pwrite;
+assign in_spi_penable = sel_flash ? in_xip_penable : in_penable;
+assign in_pready = sel_flash ? in_xip_pready : in_spi_pready;
+// xip mode (flash access)
+reg [2:0] state;
+localparam IDLE = 3'b0, INIT_SPI_DIV=3'b1, INIT_SPI_TXDATA=3'b10, INIT_SPI_SS=3'b11, CTRL_SEND=3'b100;
+localparam SPI_WAIT = 3'b101, SPI_READ=3'b110;
+always @(posedge clock) begin
+  if (reset) begin
+    state <= IDLE;
+    in_xip_paddr <= 0;
+    in_xip_pwdata <= 0;
+    in_xip_prdata <= 0;
+    in_xip_pstrb <= 0;
+    in_xip_pwrite <= 0;
+    in_xip_penable <= 0;
+    in_xip_pready <= 0;
+  end
+  else begin
+    case (state)
+      IDLE: if (sel_flash) begin
+        in_xip_pready <= 0;
+        in_xip_paddr <= 5'h14; // SPI_DIV address
+        in_xip_pwdata <= 32'b1; // SPI_DIV = 1
+        in_xip_pstrb <= 4'b1111;
+        in_xip_pwrite <= 1;
+        in_xip_penable <= 1;
+        state <= INIT_SPI_DIV;
+      end
+      INIT_SPI_DIV: if (in_spi_pready) begin
+        in_xip_paddr <= 5'h4; // SPI_TXDATA address (second word)
+        in_xip_pwdata <= {8'h03, in_paddr[23:2], 2'b0}; // 发送指令 0x03 和地址
+        in_xip_pstrb <= 4'b1111;
+        in_xip_pwrite <= 1;
+        in_xip_penable <= 1;
+        state <= INIT_SPI_TXDATA;
+      end
+      INIT_SPI_TXDATA: if (in_spi_pready) begin
+        in_xip_paddr <= 5'h18; // SPI_SS address
+        in_xip_pwdata <= 32'b1; // 选择 flash
+        in_xip_pstrb <= 4'b1111;
+        in_xip_pwrite <= 1;
+        in_xip_penable <= 1;
+        state <= INIT_SPI_SS;
+      end
+      INIT_SPI_SS: if (in_spi_pready) begin
+        in_xip_paddr <= 5'h10; // SPI_CTRL address
+        in_xip_pwdata <= 32'h2140; // SPI_CHAR_LEN64 | SPI_ASS | SPI_GO_BSY
+        in_xip_pstrb <= 4'b1111;
+        in_xip_pwrite <= 1;
+        in_xip_penable <= 1;
+        state <= CTRL_SEND;
+      end
+      CTRL_SEND: if (in_spi_pready) begin
+        in_xip_paddr <= 5'h10; // SPI_CTRL address
+        in_xip_pwrite <= 0; // 读寄存器
+        in_xip_penable <= 1;
+        state <= SPI_WAIT;
+      end
+      SPI_WAIT: if (in_spi_pready) begin
+        if (in_spi_prdata[8]) begin
+          in_xip_paddr <= 5'h10; // SPI_CTRL address
+          in_xip_pwrite <= 0; // 读寄存器
+          in_xip_penable <= 1;
+          state <= SPI_WAIT;
+        end
+        else begin // SPI_GO_BSY位为0 SPI传输完成
+          in_xip_paddr <= 5'h0; // SPI_RXDATA address
+          in_xip_pwrite <= 0; // 读寄存器
+          in_xip_penable <= 1;
+          state <= SPI_READ;
+        end
+      end
+      SPI_READ: if (in_spi_pready) begin
+        in_xip_prdata <= {in_spi_prdata[7:0],in_spi_prdata[15:8],in_spi_prdata[23:16],in_spi_prdata[31:24]};
+        in_xip_pready <= 1; // 读数据准备好
+        in_xip_paddr <= 5'h0; // 复位地址
+        in_xip_pwdata <= 0;
+        in_xip_pstrb <= 0;
+        in_xip_pwrite <= 0;
+        in_xip_penable <= 0; // 结束访问
+        state <= IDLE;
+      end
+      default: state <= IDLE;
+    endcase
+  end
+  
+end
 spi_top u0_spi_top (
   .wb_clk_i(clock),
   .wb_rst_i(reset),
-  .wb_adr_i(in_paddr[4:0]),
-  .wb_dat_i(in_pwdata),
-  .wb_dat_o(in_prdata),
-  .wb_sel_i(in_pstrb),
-  .wb_we_i (in_pwrite),
+  .wb_adr_i(in_spi_paddr),
+  .wb_dat_i(in_spi_pwdata),
+  .wb_dat_o(in_spi_prdata),
+  .wb_sel_i(in_spi_pstrb),
+  .wb_we_i (in_spi_pwrite),
   .wb_stb_i(in_psel),
-  .wb_cyc_i(in_penable),
-  .wb_ack_o(in_pready),
+  .wb_cyc_i(in_spi_penable),
+  .wb_ack_o(in_spi_pready),
   .wb_err_o(in_pslverr),
   .wb_int_o(spi_irq_out),
 
@@ -67,6 +170,26 @@ spi_top u0_spi_top (
   .mosi_pad_o(spi_mosi),
   .miso_pad_i(spi_miso)
 );
+
+// spi_top u0_spi_top (
+//   .wb_clk_i(clock),
+//   .wb_rst_i(reset),
+//   .wb_adr_i(in_paddr[4:0]),
+//   .wb_dat_i(in_pwdata),
+//   .wb_dat_o(in_prdata),
+//   .wb_sel_i(in_pstrb),
+//   .wb_we_i (in_pwrite),
+//   .wb_stb_i(in_psel),
+//   .wb_cyc_i(in_penable),
+//   .wb_ack_o(in_pready),
+//   .wb_err_o(in_pslverr),
+//   .wb_int_o(spi_irq_out),
+
+//   .ss_pad_o(spi_ss),
+//   .sclk_pad_o(spi_sck),
+//   .mosi_pad_o(spi_mosi),
+//   .miso_pad_i(spi_miso)
+// );
 
 `endif // FAST_FLASH
 
