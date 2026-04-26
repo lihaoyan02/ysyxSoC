@@ -32,6 +32,9 @@ module psram(
   // command parse state machine
   always @(posedge sck or posedge ce_n) begin
     if (ce_n) begin
+      if (cmd_read==8'h35) begin
+        qpi_flag <= 1;
+      end
       state <= IDLE;
       cmd_read <= 0;
       cnt <= 0;
@@ -53,10 +56,6 @@ module psram(
             if (cnt < 8) begin
               cmd_read <= {cmd_read[6:0], dio[0]};
               cnt <= cnt + 1;
-            end
-            else if (cmd_read==8'h35) begin
-              qpi_flag <= 1;
-              state <= IDLE;
             end
             else begin
               cnt <= 4'b1;

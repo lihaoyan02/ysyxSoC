@@ -39,8 +39,9 @@ module EF_PSRAM_CTRL_wb (
     output  wire [3:0]      douten
 );
 
-    localparam  ST_IDLE = 1'b0,
-                ST_WAIT = 1'b1;
+    localparam  IDLE = 2'b0,
+                ST_IDLE = 2'b1,
+                ST_WAIT = 2'b10;
 
     wire        mr_sck;
     wire        mr_ce_n;
@@ -53,6 +54,12 @@ module EF_PSRAM_CTRL_wb (
     wire [3:0]  mw_din;
     wire [3:0]  mw_dout;
     wire        mw_doe;
+    // QPI Enabler
+    wire        me_sck;
+    wire        me_ce_n;
+    wire [3:0]  me_dout;
+    wire        me_doe;
+    wire        me_done;
 
     // PSRAM Reader and Writer wires
     wire        mr_rd;
@@ -69,15 +76,18 @@ module EF_PSRAM_CTRL_wb (
     //wire[3:0]   wb_byte_sel     =   sel_i & {4{wb_we}};
 
     // The FSM
-    reg         state, nstate;
+    reg     [1:0]   state, nstate;
     always @ (posedge clk_i or posedge rst_i)
         if(rst_i)
-            state <= ST_IDLE;
+            state <= IDLE;
         else
             state <= nstate;
 
     always @* begin
         case(state)
+            IDLE    : // setup QPI
+                if (me_done)
+                    nstate = ST_IDLE;
             ST_IDLE :
                 if(wb_valid)
                     nstate = ST_WAIT;
@@ -89,6 +99,7 @@ module EF_PSRAM_CTRL_wb (
                     nstate = ST_IDLE;
                 else
                     nstate = ST_WAIT;
+            default: nstate = IDLE;
         endcase
     end
 
@@ -130,7 +141,7 @@ module EF_PSRAM_CTRL_wb (
     assign mr_rd    = ( (state==ST_IDLE ) & wb_re );
     assign mw_wr    = ( (state==ST_IDLE ) & wb_we );
 
-    PSRAM_READER MR (
+    PSRAM_QPI_READER MR (
         .clk(clk_i),
         .rst_n(~rst_i),
         .addr({adr_i[23:2],2'b0}),
@@ -146,7 +157,7 @@ module EF_PSRAM_CTRL_wb (
         .douten(mr_doe)
     );
 
-    PSRAM_WRITER MW (
+    PSRAM_QPI_WRITER MW (
         .clk(clk_i),
         .rst_n(~rst_i),
         .addr({adr_i[23:0]}),
@@ -161,12 +172,22 @@ module EF_PSRAM_CTRL_wb (
         .douten(mw_doe)
     );
 
-    assign sck  = wb_we ? mw_sck  : mr_sck;
-    assign ce_n = wb_we ? mw_ce_n : mr_ce_n;
-    assign dout = wb_we ? mw_dout : mr_dout;
-    assign douten  = wb_we ? {4{mw_doe}}  : {4{mr_doe}};
+    PSRAM_QPI_ENABLER ME (
+        .clk(clk_i),
+        .rst_n(~rst_i),
+        .done(me_done),
+        .sck(me_sck),
+        .ce_n(me_ce_n),
+        .dout(me_dout),
+        .douten(me_doe)
+    );
+    // IDLE for setup QPI
+    assign sck  = (state==IDLE) ? me_sck : (wb_we ? mw_sck  : mr_sck);
+    assign ce_n = (state==IDLE) ? me_ce_n : (wb_we ? mw_ce_n : mr_ce_n);
+    assign dout = (state==IDLE) ? me_dout : (wb_we ? mw_dout : mr_dout);
+    assign douten  = (state==IDLE) ? {4{me_doe}} : (wb_we ? {4{mw_doe}}  : {4{mr_doe}});
 
     assign mw_din = din;
     assign mr_din = din;
-    assign ack_o = wb_we ? mw_done :mr_done ;
+    assign ack_o = (state==IDLE) ? 0 : (wb_we ? mw_done :mr_done) ;
 endmodule
