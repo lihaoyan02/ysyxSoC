@@ -68,8 +68,8 @@ assign in_spi_penable = sel_flash ? in_xip_penable : in_penable;
 assign in_pready = sel_flash ? in_xip_pready : in_spi_pready;
 // xip mode (flash access)
 reg [2:0] state;
-localparam IDLE = 3'b0, INIT_SPI_DIV=3'b1, INIT_SPI_TXDATA=3'b10, INIT_SPI_SS=3'b11, CTRL_SEND=3'b100;
-localparam SPI_WAIT = 3'b101, SPI_READ=3'b110;
+localparam IDLE = 3'b0, INIT_SPI_DIV=3'b1, INIT_SPI_TXDATA=3'b10, INIT_SPI_SS=3'b11, 
+        CTRL_SEND=3'b100, SPI_WAIT = 3'b101, SPI_READ=3'b110, IDLE2=3'b111;
 always @(posedge clock) begin
   if (reset) begin
     state <= IDLE;
@@ -93,22 +93,22 @@ always @(posedge clock) begin
         state <= INIT_SPI_DIV;
       end
       INIT_SPI_DIV: if (in_spi_pready) begin
-        in_xip_paddr <= 5'h4; // SPI_TXDATA address (second word)
-        in_xip_pwdata <= {8'h03, in_paddr[23:2], 2'b0}; // 发送指令 0x03 和地址
-        in_xip_pstrb <= 4'b1111;
-        in_xip_pwrite <= 1;
-        in_xip_penable <= 1;
-        state <= INIT_SPI_TXDATA;
-      end
-      INIT_SPI_TXDATA: if (in_spi_pready) begin
         in_xip_paddr <= 5'h18; // SPI_SS address
         in_xip_pwdata <= 32'b1; // 选择 flash
         in_xip_pstrb <= 4'b1111;
         in_xip_pwrite <= 1;
         in_xip_penable <= 1;
-        state <= INIT_SPI_SS;
+        state <= INIT_SPI_SS;       
       end
       INIT_SPI_SS: if (in_spi_pready) begin
+        in_xip_paddr <= 5'h4; // SPI_TXDATA address (second word)
+        in_xip_pwdata <= {8'h03, in_paddr[23:2], 2'b0}; // 发送指令 0x03 和地址
+        in_xip_pstrb <= 4'b1111;
+        in_xip_pwrite <= 1;
+        in_xip_penable <= 1;       
+        state <= INIT_SPI_TXDATA;
+      end
+      INIT_SPI_TXDATA: if (in_spi_pready) begin
         in_xip_paddr <= 5'h10; // SPI_CTRL address
         in_xip_pwdata <= 32'h2140; // SPI_CHAR_LEN64 | SPI_ASS | SPI_GO_BSY
         in_xip_pstrb <= 4'b1111;
@@ -144,7 +144,19 @@ always @(posedge clock) begin
         in_xip_pstrb <= 0;
         in_xip_pwrite <= 0;
         in_xip_penable <= 0; // 结束访问
-        state <= IDLE;
+        state <= IDLE2;
+      end
+      IDLE2: if (sel_flash & in_xip_pready) begin
+        in_xip_pready <= 0;   
+        state <= IDLE2;
+      end
+      else if (sel_flash) begin
+        in_xip_paddr <= 5'h4; // SPI_TXDATA address (second word)
+        in_xip_pwdata <= {8'h03, in_paddr[23:2], 2'b0}; // 发送指令 0x03 和地址
+        in_xip_pstrb <= 4'b1111;
+        in_xip_pwrite <= 1;
+        in_xip_penable <= 1;       
+        state <= INIT_SPI_TXDATA;
       end
       default: state <= IDLE;
     endcase
