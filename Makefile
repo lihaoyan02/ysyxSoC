@@ -6,7 +6,7 @@ SCALA_FILES = $(shell find src/ -name "*.scala")
 FIRTOOL_VERSION = 1.105.0
 FIRTOOL_PATCH_DIR = $(shell pwd)/patch/firtool
 
-$(V_FILE_FINAL): $(SCALA_FILES)
+$(V_FILE_FINAL): $(SCALA_FILES) 
 # Replace firtool with a newer version
 # TODO: This can be removed after chisel publishes a new version
 	@./patch/update-firtool.sh $(FIRTOOL_VERSION) $(FIRTOOL_PATCH_DIR)
@@ -16,8 +16,17 @@ $(V_FILE_FINAL): $(SCALA_FILES)
 	sed -i -e 's/_\(aw\|ar\|w\|r\|b\)_\(\|bits_\)/_\1/g' $@
 	sed -i '/firrtl_black_box_resource_files.f/, $$d' $@
 
-verilog: $(V_FILE_FINAL)
+verilog: change_sdramport
 
+change_sdramport: $(V_FILE_FINAL)
+	sed -E -i \
+	    -e 's/^([[:space:]]+)sdram_dqm/output [3:0]	sdram_dqm/' \
+	    -e 's/inout  \[15:0\] sdram_dq/inout  [31:0] sdram_dq/' \
+	    -e 's/wire \[1:0\]  _asic_sdram_dqm/wire [3:0]  _asic_sdram_dqm/' \
+	    -e 's/wire \[15:0\] _dq_wire/wire [31:0] _dq_wire/' \
+	    -e 's/^([[:space:]]+)sdram_bundle_dqm/output [3:0]	sdram_bundle_dqm/' \
+	    -e 's/inout  \[15:0\] sdram_bundle_dq/inout  [31:0] sdram_bundle_dq/' \
+        $<
 clean:
 	-rm -rf build/
 

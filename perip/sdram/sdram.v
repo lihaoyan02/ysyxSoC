@@ -7,10 +7,50 @@ module sdram(
   input        we,
   input [12:0] a,
   input [ 1:0] ba,
+  input [ 3:0] dqm,
+  inout [31:0] dq
+);
+
+sdram16b u_sdram1 (
+  .clk(clk),
+  .cke(cke),
+  .cs(cs),
+  .ras(ras),
+  .cas(cas),
+  .we(we),
+  .a(a),
+  .ba(ba),
+  .dqm(dqm[1:0]),
+  .dq(dq[15:0])
+);
+
+sdram16b u_sdram2 (
+  .clk(clk),
+  .cke(cke),
+  .cs(cs),
+  .ras(ras),
+  .cas(cas),
+  .we(we),
+  .a(a),
+  .ba(ba),
+  .dqm(dqm[3:2]),
+  .dq(dq[31:16])
+);
+
+endmodule
+
+module sdram16b (
+  input        clk,
+  input        cke,
+  input        cs,
+  input        ras,
+  input        cas,
+  input        we,
+  input [12:0] a,
+  input [ 1:0] ba,
   input [ 1:0] dqm,
   inout [15:0] dq
 );
-
 localparam CMD_NOP           = 4'b0111;
 localparam CMD_ACTIVE        = 4'b0011;
 localparam CMD_READ          = 4'b0101;
@@ -22,7 +62,7 @@ localparam CMD_LOAD_MODE     = 4'b0000;
 
 reg [12:0] mode_reg;
 wire [2:0] cas_latency = mode_reg[6:4];
-wire [2:0] burst_len = 3'b10; //2'b1 << mode_Reg[2:0];
+wire [2:0] burst_len = 3'b1; //3'b1 << mode_Reg[2:0];
 reg [2:0] cnt;
 
 localparam INIT=3'd0, IDLE = 3'd1, ACTIVE=3'd2, READ_WAIT = 3'd3, READ = 3'd4, WRITE = 3'd5;
@@ -75,8 +115,8 @@ reg [15:0] sdram_mem [1<<24-1:0];
             addr_buf[8:0] <= a[8:0]; //addr col
             addr_buf[10:9] <= ba; //addr bank
             addr_buf[23:11] <= actived_row[ba];
-            state <= READ_WAIT;
-            cnt <= 0;
+            state <= READ_WAIT; //cas=2
+            cnt <= 0; 
           end
           else if (command_q==CMD_WRITE) begin
             addr_buf[8:0] <= a[8:0];
@@ -89,13 +129,8 @@ reg [15:0] sdram_mem [1<<24-1:0];
           end
         end
         READ_WAIT: begin
-          if (cnt!=0) begin
-            cnt <= cnt -1;
-          end
-          else begin
-            cnt <= burst_len;
-            state <= READ;
-          end
+          cnt <= burst_len;
+          state <= READ;
         end
         READ: begin
           if (cnt!=0) begin
@@ -130,5 +165,4 @@ reg [15:0] sdram_mem [1<<24-1:0];
 
 
   assign dq = (state==READ) ? sdram_mem[addr_buf] : 16'bz;
-
 endmodule
