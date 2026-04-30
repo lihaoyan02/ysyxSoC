@@ -176,9 +176,9 @@ reg  [STATE_W-1:0]     target_state_q;
 reg  [STATE_W-1:0]     delay_state_q;
 
 // Address bits
-wire [SDRAM_ROW_W-1:0]  addr_col_w  = {{(SDRAM_ROW_W-SDRAM_COL_W){1'b0}}, ram_addr_w[SDRAM_COL_W:2], 1'b0};
-wire [SDRAM_ROW_W-1:0]  addr_row_w  = ram_addr_w[SDRAM_ADDR_W:SDRAM_COL_W+2+1];
-wire [SDRAM_BANK_W-1:0] addr_bank_w = ram_addr_w[SDRAM_COL_W+2:SDRAM_COL_W+2-1];
+wire [SDRAM_ROW_W-1:0]  addr_col_w  = {{(SDRAM_ROW_W-SDRAM_COL_W){1'b0}}, ram_addr_w[SDRAM_COL_W+1:2]};
+wire [SDRAM_ROW_W-1:0]  addr_row_w  = ram_addr_w[SDRAM_ADDR_W+1:SDRAM_COL_W+2+2];
+wire [SDRAM_BANK_W-1:0] addr_bank_w = ram_addr_w[SDRAM_COL_W+2+1:SDRAM_COL_W+2];
 
 //-----------------------------------------------------------------
 // SDRAM State Machine
@@ -284,14 +284,7 @@ begin
     STATE_WRITE :
     begin
         next_state_r = STATE_IDLE;
-
-        // Another pending write request (with no refresh pending)
-        if (!refresh_q && ram_req_w && (ram_wr_w != 4'b0))
-        begin
-            // Open row hit
-            if (row_open_q[addr_bank_w] && addr_row_w == active_row_q[addr_bank_w])
-                next_state_r = STATE_WRITE;
-        end
+        
     end
     //-----------------------------------------
     // STATE_PRECHARGE

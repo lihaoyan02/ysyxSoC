@@ -73,7 +73,7 @@ reg [23:0] addr_buf;
 reg [12:0] actived_row [3:0];
 reg [1:0] dqm_buf;
 reg [15:0] dq_buf;
-reg [15:0] sdram_mem [1<<24-1:0];
+reg [15:0] sdram_mem [(1<<24)-1:0];
 // load mode
   always @(posedge clk) begin
     if (!cke) begin
@@ -125,7 +125,7 @@ reg [15:0] sdram_mem [1<<24-1:0];
             dqm_buf <= dqm;
             dq_buf <= dq;
             state <= WRITE;
-            cnt <= burst_len;
+            // cnt <= burst_len;
           end
         end
         READ_WAIT: begin
@@ -133,17 +133,17 @@ reg [15:0] sdram_mem [1<<24-1:0];
           state <= READ;
         end
         READ: begin
-          if (cnt!=0) begin
-            cnt <= cnt -1;
-            addr_buf <= addr_buf + 1;
-          end
-          else begin
+          // if (cnt!=0) begin
+          //   cnt <= cnt -1;
+          //   addr_buf <= addr_buf + 1;
+          // end
+          // else begin
             state <= ACTIVE;
-          end
+          // end
         end
         WRITE: begin
-          if (cnt!=0) begin
-            cnt <= cnt -1;
+          // if (cnt!=0) begin
+            // cnt <= cnt -1;
             addr_buf <= addr_buf + 1;
             dqm_buf <= dqm;
             dq_buf <= dq;
@@ -153,16 +153,16 @@ reg [15:0] sdram_mem [1<<24-1:0];
             if (!dqm_buf[1]) begin
               sdram_mem[addr_buf][15:8] <= dq_buf[15:8];
             end
-          end
-          else begin
+          // end
+          // else begin
             state <= ACTIVE;
-          end
+          // end
         end
         default: state <= INIT;
       endcase
     end
   end
 
-
   assign dq = (state==READ) ? sdram_mem[addr_buf] : 16'bz;
+
 endmodule
