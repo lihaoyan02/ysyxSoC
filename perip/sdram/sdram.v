@@ -138,7 +138,25 @@ reg [15:0] sdram_mem [(1<<24)-1:0];
           //   addr_buf <= addr_buf + 1;
           // end
           // else begin
-            state <= ACTIVE;
+            if (command_q==CMD_READ) begin
+              addr_buf[8:0] <= a[8:0]; //addr col
+              addr_buf[10:9] <= ba; //addr bank
+              addr_buf[23:11] <= actived_row[ba];
+              state <= READ_WAIT; //cas=2
+              cnt <= 0; 
+            end
+            else if (command_q==CMD_WRITE) begin
+              addr_buf[8:0] <= a[8:0];
+              addr_buf[10:9] <= ba;
+              addr_buf[23:11] <= actived_row[ba];
+              dqm_buf <= dqm;
+              dq_buf <= dq;
+              state <= WRITE;
+              // cnt <= burst_len;
+            end
+            else begin
+              state <= ACTIVE;
+            end
           // end
         end
         WRITE: begin
