@@ -80,11 +80,6 @@ module axi4_delayer(
   localparam R_PRE_DELAYING = 2'b10;
   localparam R_DELAYING = 2'b11;
   
-  // // States for write delay controller
-  // localparam W_IDLE = 2'b00;
-  // localparam W_COUNTING = 2'b01;
-  // localparam W_DELAYING = 2'b10;
-  
   // Read delay state machine and counters
   reg [1:0]  r_state, r_state_next, r_delay_state;
   reg [31:0] r_counter, r_counter_next;
@@ -99,14 +94,6 @@ module axi4_delayer(
   reg [1:0] queue_rresp [7:0];
   reg [3:0] queue_rid [7:0];
   reg queue_rlast [7:0];
-  // // Write side state machine and counters
-  // reg [1:0]  w_state, w_state_next;
-  // reg [31:0] w_counter, w_counter_next;
-  
-  // // Write response latching
-  // reg [31:0] b_delay_counter, b_delay_counter_next;
-  // reg [3:0]  bid_latched, bid_latched_next;
-  // reg [1:0]  bresp_latched, bresp_latched_next;
   
   
   // ==========================================================================
@@ -298,80 +285,82 @@ module axi4_delayer(
   // ==========================================================================
   // WRITE PATH: Handle write address, write data, write response with delays
   // ==========================================================================
+  // States for write delay controller
+  localparam W_IDLE = 2'b00;
+  localparam W_COUNTING = 2'b01;
+  localparam W_DELAYING = 2'b10;
+  // Write side state machine and counters
+  reg [1:0]  w_state, w_state_next;
+  reg [31:0] w_counter, w_counter_next;
   
-  // // Combinational logic for write state machine
-  // always @(*) begin
-  //   w_state_next = w_state;
-  //   w_counter_next = w_counter;
-  //   b_delay_counter_next = b_delay_counter;
-  //   bid_latched_next = bid_latched;
-  //   bresp_latched_next = bresp_latched;
+  // Write response latching
+  reg [31:0] b_delay_counter, b_delay_counter_next;
+  reg [3:0]  bid_latched, bid_latched_next;
+  reg [1:0]  bresp_latched, bresp_latched_next;
+  
+  // Combinational logic for write state machine
+  always @(*) begin
+    w_state_next = w_state;
+    w_counter_next = w_counter;
+    b_delay_counter_next = b_delay_counter;
+    bid_latched_next = bid_latched;
+    bresp_latched_next = bresp_latched;
     
-  //   case (w_state)
-  //     W_IDLE: begin
-  //       if (in_awvalid && out_awready) begin
-  //         // Write address accepted - start of write transaction
-  //         if (out_bvalid) begin
-  //           // Device responds immediately (unlikely but handled)
-  //           w_state_next = W_DELAYING;
-  //           w_counter_next = ACCUM_VALUE >> 1;
-  //           bid_latched_next = out_bid;
-  //           bresp_latched_next = out_bresp;
-  //         end else begin
-  //           // Start counting cycles until device responds
-  //           w_state_next = W_COUNTING;
-  //           w_counter_next = ACCUM_VALUE;
-  //         end
-  //       end
-  //     end
-      
-  //     W_COUNTING: begin
-  //       // Accumulating cycles while waiting for device response
-  //       if (out_bvalid) begin
-  //         // Device has returned write response
-  //         w_state_next = W_DELAYING;
-  //         // Delay = ((counter_scaled + ACCUM_VALUE) >> 1)
-  //         w_counter_next = ((w_counter + ACCUM_VALUE) >> 1);
-  //         bid_latched_next = out_bid;
-  //         bresp_latched_next = out_bresp;
-  //       end else begin
-  //         // Continue accumulating
-  //         w_counter_next = w_counter + ACCUM_VALUE;
-  //       end
-  //     end
-      
-  //     W_DELAYING: begin
-  //       // Delaying before returning response to upstream
-  //       if (w_counter == 32'h1) begin
-  //         // Delay complete, ready to signal response
-  //         if (in_bready) begin
-  //           // Upstream accepts response
-  //           w_state_next = W_IDLE;
-  //         end
-  //       end else if (w_counter > 32'h0) begin
-  //         // Continue counting down delay
-  //         w_counter_next = w_counter - 32'b1;
-  //       end
-  //     end
-  //   endcase
-  // end
+    case (w_state)
+      W_IDLE: begin
+        if (in_awvalid) begin
+          w_state_next = W_COUNTING;
+          w_counter_next = ACCUM_VALUE;
+        end
+      end
+      W_COUNTING: begin
+        // Accumulating cycles while waiting for device response
+        if (out_bvalid) begin
+          w_state_next = W_DELAYING;
+          w_counter_next = ((w_counter + ACCUM_VALUE) >> 1);
+          bid_latched_next = out_bid;
+          bresp_latched_next = out_bresp;
+        end
+        else begin
+          w_counter_next = w_counter + ACCUM_VALUE;
+        end
+      end
+      W_DELAYING: begin
+        // Delaying before returning response to upstream
+        if (w_counter == 32'h0) begin
+          // Delay complete, ready to signal response
+          if (in_bready) begin
+            // Upstream accepts response
+            w_state_next = W_IDLE;
+          end
+        end 
+        else if (w_counter > 32'h0) begin
+          // Continue counting down delay
+          w_counter_next = w_counter - 32'b1;
+        end
+      end
+      default: begin
+        w_state_next = W_IDLE;
+      end
+    endcase
+  end
   
-  // // Sequential logic for write path
-  // always @(posedge clock) begin
-  //   if (reset) begin
-  //     w_state <= W_IDLE;
-  //     w_counter <= 32'b0;
-  //     b_delay_counter <= 32'b0;
-  //     bid_latched <= 4'b0;
-  //     bresp_latched <= 2'b0;
-  //   end else begin
-  //     w_state <= w_state_next;
-  //     w_counter <= w_counter_next;
-  //     b_delay_counter <= b_delay_counter_next;
-  //     bid_latched <= bid_latched_next;
-  //     bresp_latched <= bresp_latched_next;
-  //   end
-  // end
+  // Sequential logic for write path
+  always @(posedge clock) begin
+    if (reset) begin
+      w_state <= W_IDLE;
+      w_counter <= 32'b0;
+      b_delay_counter <= 32'b0;
+      bid_latched <= 4'b0;
+      bresp_latched <= 2'b0;
+    end else begin
+      w_state <= w_state_next;
+      w_counter <= w_counter_next;
+      b_delay_counter <= b_delay_counter_next;
+      bid_latched <= bid_latched_next;
+      bresp_latched <= bresp_latched_next;
+    end
+  end
   
   // Write output multiplexing
   assign in_awready = out_awready;
@@ -386,9 +375,9 @@ module axi4_delayer(
   assign out_wdata = in_wdata;
   assign out_wstrb = in_wstrb;
   assign out_wlast = in_wlast;
-  assign out_bready = in_bready;
-  assign in_bvalid = out_bvalid;
-  assign in_bid = out_bid;
-  assign in_bresp = out_bresp;
+  assign out_bready = (w_state==W_COUNTING);
+  assign in_bvalid = (w_state==W_DELAYING & w_counter==0) ? 1 : 0;
+  assign in_bid = (w_state==W_DELAYING & w_counter==0) ? bid_latched : 0;
+  assign in_bresp =  (w_state==W_DELAYING & w_counter==0) ? bresp_latched : 0;
 
 endmodule
